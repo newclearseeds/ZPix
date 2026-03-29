@@ -2,43 +2,89 @@
  * ZPix Gradio app custom styles.
  */
 
+:root {
+    --zpix-bg-0: #081412;
+    --zpix-bg-1: #0f1f1c;
+    --zpix-bg-2: #152b27;
+    --zpix-panel: rgba(18, 35, 32, 0.78);
+    --zpix-panel-strong: rgba(20, 40, 36, 0.92);
+    --zpix-border: rgba(158, 220, 210, 0.16);
+    --zpix-border-strong: rgba(158, 220, 210, 0.28);
+    --zpix-text: #f4fbf9;
+    --zpix-text-muted: #9ec8c1;
+    --zpix-accent: #45c2b6;
+    --zpix-accent-strong: #1ea79c;
+    --zpix-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    --zpix-radius: 22px;
+}
+
+body,
+.gradio-container {
+    min-height: 100vh;
+    color: var(--zpix-text);
+    background:
+        radial-gradient(circle at top left, rgba(69, 194, 182, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(255, 176, 120, 0.12), transparent 24%),
+        linear-gradient(145deg, var(--zpix-bg-0), var(--zpix-bg-1) 45%, var(--zpix-bg-2));
+}
+
+.gradio-container {
+    max-width: 100% !important;
+    padding: 24px !important;
+}
+
 .blurred {
     filter: blur(4px);
     pointer-events: none;
     user-select: none;
 }
 
-#tou-row {
-    position: fixed;
-    inset: 0;
-    place-content: center;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 1000;
+#app-shell {
+    gap: 18px;
+    align-items: stretch;
 }
 
-/*
- * Gradio CSS classes and variables are subject to
- * change in future versions; but since we pinned
- * a Gradio version, this shouldn't be an issue...
- */
-
+#sidebar-panel,
+#composer-panel,
+#output-panel,
 #tou-card {
-    max-width: 360px;
-    padding: 1rem;
-    background: var(--block-background-fill);
-    border-radius: 5px;
-    text-align: center;
+    border: 1px solid var(--zpix-border);
+    border-radius: var(--zpix-radius);
+    background: var(--zpix-panel);
+    box-shadow: var(--zpix-shadow);
+    backdrop-filter: blur(16px);
+}
+
+#sidebar-panel,
+#composer-panel,
+#output-panel {
+    position: relative;
+    overflow: hidden;
+}
+
+#sidebar-panel::before,
+#composer-panel::before,
+#output-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%);
+    pointer-events: none;
+}
+
+#sidebar-panel {
+    max-width: 86px;
+    min-width: 86px !important;
+    padding: 14px 10px;
+}
+
+#composer-panel,
+#output-panel {
+    padding: 20px 20px 16px;
 }
 
 .sidebar {
-    max-width: 48px;
-}
-
-.sidebar img {
-    max-width: unset;
-
-    height: 34px;
-    width: 34px;
+    gap: 10px;
 }
 
 .sidebar .hide-container,
@@ -46,9 +92,117 @@
     display: none;
 }
 
+.sidebar button {
+    min-height: 54px !important;
+    border-radius: 18px !important;
+    border: 1px solid transparent !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    box-shadow: none !important;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.sidebar button:hover {
+    transform: translateY(-1px);
+    border-color: var(--zpix-border-strong) !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.sidebar img {
+    max-width: unset;
+    width: 34px;
+    height: 34px;
+}
+
+#import-image-metadata-btn,
+#quit-app-btn {
+    padding-inline: 10px !important;
+    font-size: 0.75rem !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+}
+
+#quit-app-btn {
+    background: rgba(147, 40, 40, 0.3) !important;
+}
+
+#composer-panel .block,
+#output-panel .block,
+#tou-card {
+    border-radius: 18px !important;
+}
+
+#composer-panel .form,
+#output-panel .form {
+    gap: 16px;
+}
+
+#composer-panel .wrap,
+#output-panel .wrap {
+    border-radius: 18px !important;
+}
+
+#composer-panel .label-wrap > label,
+#output-panel .label-wrap > label {
+    letter-spacing: 0.02em;
+    font-weight: 600;
+    color: var(--zpix-text-muted) !important;
+}
+
+textarea,
+input,
+select {
+    border: 1px solid var(--zpix-border) !important;
+    border-radius: 16px !important;
+    background: rgba(7, 20, 18, 0.55) !important;
+    color: var(--zpix-text) !important;
+}
+
+textarea::placeholder,
+input::placeholder {
+    color: rgba(158, 200, 193, 0.68) !important;
+}
+
+button.primary {
+    background: linear-gradient(135deg, var(--zpix-accent), var(--zpix-accent-strong)) !important;
+    border: none !important;
+    color: #081412 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 16px 34px rgba(30, 167, 156, 0.24) !important;
+}
+
+button.primary:hover {
+    filter: brightness(1.05);
+}
+
+#output-panel .gallery-container {
+    border: 1px solid var(--zpix-border);
+    border-radius: 20px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent),
+        rgba(6, 16, 14, 0.56);
+    padding: 12px;
+}
+
+#output-panel .gallery-item {
+    border-radius: 18px !important;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+#output-panel .gallery-item img {
+    transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+#output-panel .gallery-item:hover img {
+    transform: scale(1.015);
+    filter: saturate(1.04);
+}
+
 .gallery-container .caption {
-    padding: 0.1em;
-    font-weight: normal;
+    padding: 0.35rem 0.45rem 0.15rem;
+    font-weight: 500;
+    color: var(--zpix-text-muted);
     white-space: break-spaces;
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -60,6 +214,69 @@
     display: none;
 }
 
+#output-panel .file-preview,
+#output-panel .image-container {
+    border-radius: 18px !important;
+    overflow: hidden;
+    border: 1px solid var(--zpix-border);
+}
+
+#tou-row {
+    position: fixed;
+    inset: 0;
+    place-content: center;
+    background: rgba(1, 10, 9, 0.68);
+    z-index: 1000;
+}
+
+#tou-card {
+    max-width: 420px;
+    padding: 1.4rem;
+    background: var(--zpix-panel-strong);
+    text-align: center;
+}
+
+footer {
+    margin-top: 18px !important;
+    border-top: 1px solid rgba(158, 220, 210, 0.1);
+    color: var(--zpix-text-muted) !important;
+}
+
 footer .divider {
     display: none;
+}
+
+footer a {
+    color: var(--zpix-text-muted) !important;
+}
+
+@media (max-width: 960px) {
+    .gradio-container {
+        padding: 12px !important;
+    }
+
+    #app-shell {
+        gap: 12px;
+    }
+
+    #sidebar-panel {
+        max-width: none;
+        min-width: 0 !important;
+        padding: 10px;
+    }
+
+    .sidebar {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .sidebar button {
+        min-width: 54px !important;
+    }
+
+    #composer-panel,
+    #output-panel {
+        padding: 14px;
+    }
 }
