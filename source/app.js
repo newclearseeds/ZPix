@@ -8,6 +8,10 @@ document.addEventListener("click", (event) => {
         return quitApp()
     }
 
+    if (event.target.closest("#import-image-metadata-btn")) {
+        return importImageMetadata()
+    }
+
     if (event.target.closest("#swap-lora-btn")) {
         return swapLora()
     }
@@ -42,6 +46,22 @@ function quitApp() {
     }
 
     alert("Close this browser tab to stop viewing the app. The local server may still keep running in the terminal.")
+}
+
+/**
+ * Import metadata from a generated PNG image.
+ */
+async function importImageMetadata() {
+    /** @type {string} */
+    const path = await window.openNativeFileDialog()
+
+    if (!path) return
+
+    /** @type {HTMLTextAreaElement} */
+    const portal = document.querySelector("#import-image-path textarea")
+
+    portal.value = `${path}|${Math.floor(Date.now() / 1000)}`
+    portal.dispatchEvent(new Event("input"))
 }
 
 /**

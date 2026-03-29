@@ -4,7 +4,7 @@
 import logging
 from argparse import ArgumentParser
 from io import BytesIO
-from json import dumps as dump_json, load as load_json
+from json import dumps as dump_json, load as load_json, loads as parse_json
 from os import environ
 from pathlib import Path
 from random import randint
@@ -651,6 +651,42 @@ def export_contact_sheet(latest_batch: list | None) -> str:
     return str(sheet_path)
 
 
+def import_image_metadata(path: str):
+    """Import generation metadata from a PNG image."""
+    if not path:
+        raise gr.Error(t("Select an image to import metadata from."), duration=4)
+
+    try:
+        with Image.open(path) as image:
+            metadata_raw = image.info.get("zpix_metadata")
+    except Exception as error:
+        raise gr.Error(f"{t('Could not open image metadata.')}: {error}", duration=6) from error
+
+    if not metadata_raw:
+        raise gr.Error(t("This image does not contain ZPix metadata."), duration=4)
+
+    try:
+        metadata = parse_json(metadata_raw)
+    except Exception as error:
+        raise gr.Error(f"{t('Image metadata is invalid.')}: {error}", duration=6) from error
+
+    prompt = metadata.get("prompt", "")
+    negative_prompt = metadata.get("negative_prompt", "")
+    seed = int(metadata.get("seed", 42))
+    resolution = metadata.get("resolution", "1024x1024")
+    steps = max(4, min(9, int(metadata.get("denoising_steps", 9)) - 1))
+
+    return (
+        prompt,
+        negative_prompt,
+        resolution,
+        seed,
+        False,
+        steps,
+        t("Metadata imported"),
+    )
+
+
 def generate(
     prompt,
     negative_prompt="",
@@ -839,6 +875,14 @@ if __name__ == "__main__":
                     elem_id="lora-path",
                 )
                 gr.Button(
+                    t("Import Image Metadata"),
+                    elem_id="import-image-metadata-btn",
+                )
+                import_image_path = gr.Textbox(
+                    visible="hidden",
+                    elem_id="import-image-path",
+                )
+                gr.Button(
                     "",
                     icon=app_dir / "assets" / "kerismaker" / "tech_13631866.png",
                     link=f"{get_metadata('HOME_URL')}/blob/main/docs/FAQ.md",
@@ -940,7 +984,6 @@ if __name__ == "__main__":
                     lambda: gr.update(visible=True),
                     outputs=lora_row,
                 )
-
                 with gr.Row():
                     with gr.Column():
                         aspect_ratio = gr.Dropdown(
@@ -1134,6 +1177,20 @@ if __name__ == "__main__":
         gallery_images.select(
             lambda evt: evt.index,
             outputs=[selected_gallery_index],
+        )
+        import_image_path.change(
+            import_image_metadata,
+            inputs=[import_image_path],
+            outputs=[
+                prompt,
+                negative_prompt,
+                resolution,
+                seed,
+                random_seed,
+                steps,
+                generation_status,
+            ],
+            js="(p) => [p.split('|')[0]]",
         )
         toggle_favorite_btn.click(
             toggle_favorite,
