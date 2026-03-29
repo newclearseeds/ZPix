@@ -56,6 +56,9 @@ pipe_is_busy: bool = False
 negative_prompt_supported: bool | None = None
 """Pipeline supports negative prompts?"""
 
+stop_generation_requested: bool = False
+"""Stop current batch generation?"""
+
 
 def load_translation(locale: str) -> None:
     """Load translation for a given locale, if available."""
@@ -471,6 +474,101 @@ def build_image_metadata(
     }
 
 
+def parse_a1111_parameters(parameters: str) -> dict[str, int | str]:
+    """Parse Automatic1111-style PNG parameters text."""
+    lines = [line.strip() for line in parameters.splitlines() if line.strip()]
+    if not lines:
+        return {}
+
+    prompt = lines[0]
+    negative_prompt = ""
+    settings_line = ""
+
+    if len(lines) >= 2 and lines[1].startswith("Negative prompt:"):
+        negative_prompt = lines[1].removeprefix("Negative prompt:").strip()
+        settings_line = " ".join(lines[2:])
+    else:
+        settings_line = " ".join(lines[1:])
+
+    def extract(pattern: str, default=None):
+        match = search(pattern, settings_line)
+        return match.group(1).strip() if match else default
+
+    metadata = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+    }
+
+    if steps := extract(r"Steps:\s*([^,]+)"):
+        metadata["denoising_steps"] = int(steps)
+    if seed := extract(r"Seed:\s*([^,]+)"):
+        metadata["seed"] = int(seed)
+    if size := extract(r"Size:\s*([^,]+)"):
+        metadata["resolution"] = size.replace(" ", "")
+
+    return metadata
+
+
+def parse_comfy_prompt(prompt_payload: str) -> dict[str, str]:
+    """Parse a ComfyUI prompt payload for text prompts."""
+    try:
+        payload = parse_json(prompt_payload)
+    except Exception:
+        return {}
+
+    prompts: list[str] = []
+    negatives: list[str] = []
+    if not isinstance(payload, dict):
+        return {}
+
+    for node in payload.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs", {})
+        class_type = str(node.get("class_type", "")).lower()
+        if not isinstance(inputs, dict):
+            continue
+        text = inputs.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        if "negative" in class_type:
+            negatives.append(text.strip())
+        elif "textencode" in class_type:
+            prompts.append(text.strip())
+
+    metadata = {}
+    if prompts:
+        metadata["prompt"] = prompts[0]
+    if negatives:
+        metadata["negative_prompt"] = negatives[0]
+    return metadata
+
+
+def extract_supported_image_metadata(image: Image.Image) -> dict[str, int | str]:
+    """Extract generation metadata from supported PNG metadata formats."""
+    if metadata_raw := image.info.get("zpix_metadata"):
+        return parse_json(metadata_raw)
+
+    if parameters := image.info.get("parameters"):
+        if isinstance(parameters, str):
+            parsed = parse_a1111_parameters(parameters)
+            if parsed:
+                return parsed
+
+    if comfy_prompt := image.info.get("prompt"):
+        if isinstance(comfy_prompt, str):
+            parsed = parse_comfy_prompt(comfy_prompt)
+            if parsed:
+                return parsed
+
+    metadata = {}
+    for key in ("prompt", "negative_prompt", "seed", "resolution", "denoising_steps"):
+        value = image.info.get(key)
+        if value is not None:
+            metadata[key] = value
+    return metadata
+
+
 def export_latest_batch(latest_batch: list | None) -> str:
     """Export the latest generated batch to a zip archive."""
     if not latest_batch:
@@ -649,6 +747,18 @@ def export_selected_image(
     return str(image_path)
 
 
+def request_stop_generation():
+    """Request stopping the current batch generation."""
+    global stop_generation_requested
+    stop_generation_requested = True
+    return t("Stopping after current image...")
+
+
+def set_batch_preset(count: int):
+    """Apply a batch preset and open advanced settings."""
+    return True, gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), count
+
+
 def export_contact_sheet(latest_batch: list | None) -> str:
     """Export the latest generated batch as a contact sheet image."""
     if not latest_batch:
@@ -714,17 +824,12 @@ def import_image_metadata(
 
     try:
         with Image.open(path) as image:
-            metadata_raw = image.info.get("zpix_metadata")
+            metadata = extract_supported_image_metadata(image)
     except Exception as error:
         raise gr.Error(f"{t('Could not open image metadata.')}: {error}", duration=6) from error
 
-    if not metadata_raw:
-        raise gr.Error(t("This image does not contain ZPix metadata."), duration=4)
-
-    try:
-        metadata = parse_json(metadata_raw)
-    except Exception as error:
-        raise gr.Error(f"{t('Image metadata is invalid.')}: {error}", duration=6) from error
+    if not metadata:
+        raise gr.Error(t("This image does not contain supported prompt metadata."), duration=4)
 
     prompt = metadata.get("prompt", "")
     negative_prompt = metadata.get("negative_prompt", "")
@@ -746,6 +851,7 @@ def import_image_metadata(
         False,
         steps,
         t("Metadata imported"),
+        path,
     )
 
 
@@ -781,6 +887,7 @@ def generate(
         gr.Error: If the pipeline is not loaded or busy.
     """
     global pipe_is_busy
+    global stop_generation_requested
 
     if pipe is None:
         raise gr.Error("Pipeline not loaded.")
@@ -803,9 +910,13 @@ def generate(
 
     latest_batch = []
     pipe_is_busy = True
+    stop_generation_requested = False
 
     try:
         for index in range(int(image_count)):
+            if stop_generation_requested:
+                break
+
             current_seed = new_seed + index
             progress(
                 (index, int(image_count)),
@@ -859,11 +970,14 @@ def generate(
                 format_favorites_status([]),
                 None,
                 t("Generating image") + f" {index + 1}/{int(image_count)}",
+                None,
             )
     finally:
         pipe_is_busy = False
 
-    progress(1.0, desc=t("Batch ready"))
+    final_status = t("Generation stopped") if stop_generation_requested else t("Batch ready")
+    progress(1.0, desc=final_status)
+    stop_generation_requested = False
     yield (
         gallery_images,
         len(gallery_images) - 1,
@@ -877,7 +991,8 @@ def generate(
         [],
         format_favorites_status([]),
         None,
-        t("Batch ready"),
+        final_status,
+        None,
     )
 
 
@@ -996,7 +1111,7 @@ if __name__ == "__main__":
                 gr.Markdown(
                     f"""
                     <div id="composer-hero">
-                        <div class="eyebrow">{get_metadata("NAME")}</div>
+                        <div class="eyebrow">{get_metadata("NAME")} v{get_metadata("VERSION")}</div>
                         <h1>{t("Generate Image")}</h1>
                         <p>{t("Shape prompts, explore variations, and export the best results.")}</p>
                     </div>
@@ -1090,6 +1205,14 @@ if __name__ == "__main__":
                         )
                     with gr.Column():
                         generate_btn = gr.Button(t("Generate Image"), variant="primary")
+                    with gr.Column():
+                        stop_btn = gr.Button(t("Stop Generation"), variant="stop")
+
+                with gr.Row(elem_classes=["tool-grid"]) as preset_row:
+                    preset_1_btn = gr.Button(t("Batch 1"))
+                    preset_4_btn = gr.Button(t("Batch 4"))
+                    preset_8_btn = gr.Button(t("Batch 8"))
+                    preset_20_btn = gr.Button(t("Batch 20"))
 
                 with gr.Row(visible=False) as seed_random_row:
                     seed = gr.Number(label=t("Seed"), value=42, precision=0)
@@ -1196,6 +1319,16 @@ if __name__ == "__main__":
                     value=t("No favorites selected"),
                     interactive=False,
                 )
+                imported_image_preview = gr.Image(
+                    label=t("Imported Image Preview"),
+                    interactive=False,
+                    type="filepath",
+                )
+                open_exports_btn = gr.Button(
+                    t("Open Exports Folder"),
+                    link=(app_dir / "temp" / "Exports").resolve().as_uri(),
+                    link_target="_blank",
+                )
 
         with gr.Row():
             # Add source model link to footer, after Gradio credit.
@@ -1261,6 +1394,7 @@ if __name__ == "__main__":
                 favorites_status,
                 favorites_zip,
                 generation_status,
+                imported_image_preview,
             ],
         ).then(
             # Select generated image in gallery:
@@ -1303,8 +1437,29 @@ if __name__ == "__main__":
                 random_seed,
                 steps,
                 generation_status,
+                imported_image_preview,
             ],
             js="(p) => [p.split('|')[0]]",
+        )
+        stop_btn.click(
+            request_stop_generation,
+            outputs=[generation_status],
+        )
+        preset_1_btn.click(
+            lambda: set_batch_preset(1),
+            outputs=[advanced_checkbox, seed_random_row, steps_row, image_count_row, image_count],
+        )
+        preset_4_btn.click(
+            lambda: set_batch_preset(4),
+            outputs=[advanced_checkbox, seed_random_row, steps_row, image_count_row, image_count],
+        )
+        preset_8_btn.click(
+            lambda: set_batch_preset(8),
+            outputs=[advanced_checkbox, seed_random_row, steps_row, image_count_row, image_count],
+        )
+        preset_20_btn.click(
+            lambda: set_batch_preset(20),
+            outputs=[advanced_checkbox, seed_random_row, steps_row, image_count_row, image_count],
         )
         toggle_favorite_btn.click(
             toggle_favorite,

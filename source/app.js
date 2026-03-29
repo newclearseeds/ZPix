@@ -4,6 +4,11 @@
 
 // Delegate events for some elements.
 document.addEventListener("click", (event) => {
+    const galleryItem = event.target.closest(".gallery-item")
+    if (galleryItem) {
+        selectGalleryItem(galleryItem)
+    }
+
     if (event.target.closest("#quit-app-btn")) {
         return quitApp()
     }
@@ -34,6 +39,19 @@ function openExternalLink(link, event) {
     event.preventDefault() // Instead of opening a new webview
     // thanks to a custom binding. See webview.cpp
     window.openWithDefaultBrowser(link.href)
+}
+
+/**
+ * Highlight the selected gallery item.
+ *
+ * @param {Element} selectedItem
+ */
+function selectGalleryItem(selectedItem) {
+    document
+        .querySelectorAll("#output-panel .gallery-item.zpix-selected")
+        .forEach((item) => item.classList.remove("zpix-selected"))
+
+    selectedItem.classList.add("zpix-selected")
 }
 
 /**
