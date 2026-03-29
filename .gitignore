@@ -9,3 +9,4 @@ vcpkg_installed
 *.dll
 *.exe
 DEBUG*
+metadata/prompt_history.json
