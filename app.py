@@ -759,6 +759,11 @@ def set_batch_preset(count: int):
     return True, gr.update(visible=True), gr.update(visible=True), gr.update(visible=True), count
 
 
+def on_gallery_select(evt: gr.SelectData):
+    """Track the selected gallery index."""
+    return evt.index
+
+
 def export_contact_sheet(latest_batch: list | None) -> str:
     """Export the latest generated batch as a contact sheet image."""
     if not latest_batch:
@@ -1418,7 +1423,7 @@ if __name__ == "__main__":
             outputs=[contact_sheet],
         )
         gallery_images.select(
-            lambda evt: evt.index,
+            on_gallery_select,
             outputs=[selected_gallery_index],
         )
         import_image_path.change(
