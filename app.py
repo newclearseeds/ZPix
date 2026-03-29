@@ -972,6 +972,16 @@ if __name__ == "__main__":
                 trigger_words = gr.State(value=[None, None])
                 """Trigger words (previous, current)."""
 
+                gr.Markdown(
+                    f"""
+                    <div id="composer-hero">
+                        <div class="eyebrow">{get_metadata("NAME")}</div>
+                        <h1>{t("Generate Image")}</h1>
+                        <p>{t("Shape prompts, explore variations, and export the best results.")}</p>
+                    </div>
+                    """
+                )
+
                 prompt = gr.Textbox(
                     label=t("Prompt"),
                     lines=3,
@@ -1095,13 +1105,22 @@ if __name__ == "__main__":
                     outputs=[seed_random_row, steps_row, image_count_row],
                 )
 
-                gr.Examples(
-                    examples=get_example_prompts(),
-                    inputs=prompt,
-                    label=t("Example Prompts"),
-                )
+                with gr.Group(elem_id="examples-panel"):
+                    gr.Examples(
+                        examples=get_example_prompts(),
+                        inputs=prompt,
+                        label=t("Example Prompts"),
+                    )
 
             with gr.Column(elem_id="output-panel"):
+                gr.Markdown(
+                    f"""
+                    <div id="output-hero">
+                        <div class="eyebrow">{t("Generated Images")}</div>
+                        <p>{t("Review, compare, save, and re-import your latest batch.")}</p>
+                    </div>
+                    """
+                )
                 gallery_images = gr.Gallery(
                     label=t("Generated Images"),
                     columns=2,
@@ -1124,23 +1143,28 @@ if __name__ == "__main__":
                     value=t("Ready"),
                     interactive=False,
                 )
-                download_batch_btn = gr.Button(t("Download Latest Batch ZIP"))
-                download_selected_image_btn = gr.Button(t("Download Selected Image PNG"))
-                preview_sheet_btn = gr.Button(t("Preview Contact Sheet"))
-                toggle_favorite_btn = gr.Button(t("Toggle Favorite"))
-                download_favorites_btn = gr.Button(t("Download Favorites ZIP"))
-                latest_batch_zip = gr.File(
-                    label=t("Latest Batch ZIP"),
-                    interactive=False,
-                )
-                selected_image_png = gr.File(
-                    label=t("Selected Image PNG"),
-                    interactive=False,
-                )
-                favorites_zip = gr.File(
-                    label=t("Favorites ZIP"),
-                    interactive=False,
-                )
+                with gr.Group(elem_id="output-actions-panel"):
+                    with gr.Row(elem_classes=["tool-grid"]):
+                        download_batch_btn = gr.Button(t("Download Latest Batch ZIP"))
+                        download_selected_image_btn = gr.Button(t("Download Selected Image PNG"))
+                    with gr.Row(elem_classes=["tool-grid"]):
+                        preview_sheet_btn = gr.Button(t("Preview Contact Sheet"))
+                        toggle_favorite_btn = gr.Button(t("Toggle Favorite"))
+                    with gr.Row(elem_classes=["tool-grid"]):
+                        download_favorites_btn = gr.Button(t("Download Favorites ZIP"))
+                with gr.Group(elem_id="export-files-panel"):
+                    latest_batch_zip = gr.File(
+                        label=t("Latest Batch ZIP"),
+                        interactive=False,
+                    )
+                    selected_image_png = gr.File(
+                        label=t("Selected Image PNG"),
+                        interactive=False,
+                    )
+                    favorites_zip = gr.File(
+                        label=t("Favorites ZIP"),
+                        interactive=False,
+                    )
                 contact_sheet = gr.Image(
                     label=t("Latest Contact Sheet"),
                     interactive=False,
