@@ -3,15 +3,18 @@
 
 import logging
 from argparse import ArgumentParser
-from json import load as load_json
+from io import BytesIO
+from json import dumps as dump_json, load as load_json
 from os import environ
 from pathlib import Path
 from random import randint
 from re import search
 from shutil import rmtree
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import gradio as gr
 from diffusers import ZImagePipeline
+from PIL.PngImagePlugin import PngInfo
 from sdnq import SDNQConfig  # noqa: F401
 from sdnq.common import use_torch_compile as triton_is_available
 from sdnq.loader import apply_sdnq_options_to_model
@@ -362,23 +365,23 @@ def unload_lora():
 def generate_image(
     pipe,
     prompt,
+    negative_prompt="",
     resolution="1024x1024",
     seed=42,
     num_inference_steps=8,
-    image_count=1,
 ):
-    """Generate an image using the Z-Image pipeline.
+    """Generate one image using the Z-Image pipeline.
 
     Args:
         pipe: The loaded ZImagePipeline instance.
         prompt: Text prompt describing the desired image.
+        negative_prompt: Text prompt describing what to avoid.
         resolution: Output resolution as "WIDTHxHEIGHT" string.
         seed: Random seed for reproducible generation.
         num_inference_steps: Number of denoising steps.
-        image_count: Number of images to generate in one batch.
 
     Returns:
-        Generated PIL Images.
+        Generated PIL Image.
     """
     global pipe_is_busy
     width, height = parse_resolution(resolution)
@@ -389,54 +392,130 @@ def generate_image(
     elif xpu.is_available():
         generator_device = "xpu"
 
-    generators = [
-        Generator(device=generator_device).manual_seed(seed + index)
-        for index in range(image_count)
-    ]
+    generator = Generator(device=generator_device).manual_seed(seed)
 
     try:
-        pipe_is_busy = True
-        images = pipe(
+        image = pipe(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            height=height,
+            width=width,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=0.0,
+            generator=generator,
+            num_images_per_prompt=1,
+        ).images[0]
+    except TypeError:
+        # Keep compatibility if the current pipeline revision
+        # does not support negative prompts explicitly.
+        image = pipe(
             prompt=prompt,
             height=height,
             width=width,
             num_inference_steps=num_inference_steps,
             guidance_scale=0.0,
-            generator=generators if image_count > 1 else generators[0],
-            num_images_per_prompt=image_count,
-        ).images
-    finally:
-        pipe_is_busy = False
+            generator=generator,
+            num_images_per_prompt=1,
+        ).images[0]
 
-    return images
+    return image
+
+
+def build_image_metadata(
+    prompt: str,
+    negative_prompt: str,
+    seed: int,
+    resolution: str,
+    steps: int,
+    batch_index: int,
+    batch_size: int,
+) -> dict[str, int | str]:
+    """Build exportable metadata for one generated image."""
+    return {
+        "app": get_metadata("NAME"),
+        "app_version": get_metadata("VERSION"),
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "seed": seed,
+        "resolution": resolution,
+        "denoising_steps": steps,
+        "batch_index": batch_index,
+        "batch_size": batch_size,
+    }
+
+
+def export_latest_batch(latest_batch: list | None) -> str:
+    """Export the latest generated batch to a zip archive."""
+    if not latest_batch:
+        raise gr.Error(t("Generate a batch before downloading it."), duration=4)
+
+    export_dir = app_dir / "temp" / "Exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    first_seed = latest_batch[0]["metadata"]["seed"]
+    last_seed = latest_batch[-1]["metadata"]["seed"]
+    zip_path = export_dir / f"zpix_batch_{first_seed}_{last_seed}.zip"
+
+    with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "batch_metadata.json",
+            dump_json(
+                [entry["metadata"] for entry in latest_batch],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+        for entry in latest_batch:
+            png_info = PngInfo()
+            png_info.add_text(
+                "zpix_metadata",
+                dump_json(entry["metadata"], ensure_ascii=False),
+            )
+
+            image_buffer = BytesIO()
+            entry["image"].save(image_buffer, format="PNG", pnginfo=png_info)
+            archive.writestr(
+                f"image_{entry['metadata']['batch_index']:02d}_seed_{entry['metadata']['seed']}.png",
+                image_buffer.getvalue(),
+            )
+
+    return str(zip_path)
 
 
 def generate(
     prompt,
+    negative_prompt="",
     resolution="1024x1024",
     seed=42,
     steps=8,
     image_count=1,
     random_seed=True,
     gallery_images=None,
+    latest_batch=None,
+    progress=gr.Progress(track_tqdm=False),
 ):
-    """Gradio callback to generate an image and update the gallery.
+    """Gradio callback to generate images and update the gallery.
 
     Args:
         prompt: Text prompt for image generation.
+        negative_prompt: Text prompt describing what to avoid.
         resolution: Resolution string (e.g. "1024x1024").
         seed: Seed value for reproducibility.
         steps: Number of inference (denoising) steps.
         image_count: Number of images to generate in one batch.
         random_seed: If True, generate a random seed ignoring the seed parameter.
         gallery_images: Existing gallery images to append to.
+        latest_batch: Latest generated batch state.
 
     Returns:
-        Tuple of (updated gallery, last image index, seed as str, seed as int).
+        Generator yielding updated UI state while the batch is generated.
 
     Raises:
         gr.Error: If the pipeline is not loaded or busy.
     """
+    global pipe_is_busy
+
     if pipe is None:
         raise gr.Error("Pipeline not loaded.")
 
@@ -451,31 +530,80 @@ def generate(
     else:
         new_seed = int(seed) if seed != -1 else randint(1, 1000000)
 
-    generation_args = {
-        "pipe": pipe,
-        "prompt": prompt,
-        "resolution": resolution,
-        "seed": new_seed,
-        "num_inference_steps": int(steps + 1),
-        "image_count": int(image_count),
-    }
-    try:
-        images = generate_image(**generation_args)
-    except UnicodeDecodeError:
-        # A corrupted Triton cache can cause an UnicodeDecodeError.
-        rmtree(Path.home() / ".triton", ignore_errors=True)
-        gr.Warning(t("Cleared Triton cache as it may be corrupted."), duration=6)
-
-        gr.Info(t("Regenerating same image..."), duration=8)
-        images = generate_image(**generation_args)
-
     if gallery_images is None:
         gallery_images = []
+    else:
+        gallery_images = list(gallery_images)
 
-    # Prompt is added as image caption.
-    gallery_images.extend((image, prompt) for image in images)
+    latest_batch = []
+    pipe_is_busy = True
 
-    return gallery_images, len(gallery_images) - 1, str(new_seed), int(new_seed)
+    try:
+        for index in range(int(image_count)):
+            current_seed = new_seed + index
+            progress(
+                (index, int(image_count)),
+                desc=t("Generating image") + f" {index + 1}/{int(image_count)}",
+            )
+
+            generation_args = {
+                "pipe": pipe,
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "resolution": resolution,
+                "seed": current_seed,
+                "num_inference_steps": int(steps + 1),
+            }
+            try:
+                image = generate_image(**generation_args)
+            except UnicodeDecodeError:
+                # A corrupted Triton cache can cause an UnicodeDecodeError.
+                rmtree(Path.home() / ".triton", ignore_errors=True)
+                gr.Warning(t("Cleared Triton cache as it may be corrupted."), duration=6)
+
+                gr.Info(t("Regenerating same image..."), duration=8)
+                image = generate_image(**generation_args)
+
+            image_metadata = build_image_metadata(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                seed=current_seed,
+                resolution=resolution,
+                steps=int(steps + 1),
+                batch_index=index + 1,
+                batch_size=int(image_count),
+            )
+            latest_batch.append({"image": image, "metadata": image_metadata})
+
+            # Prompt is added as image caption.
+            gallery_images.append((image, prompt))
+
+            yield (
+                gallery_images,
+                len(gallery_images) - 1,
+                f"{new_seed}-{new_seed + int(image_count) - 1}"
+                if int(image_count) > 1
+                else str(new_seed),
+                int(new_seed),
+                latest_batch,
+                None,
+                t("Generating image") + f" {index + 1}/{int(image_count)}",
+            )
+    finally:
+        pipe_is_busy = False
+
+    progress(1.0, desc=t("Batch ready"))
+    yield (
+        gallery_images,
+        len(gallery_images) - 1,
+        f"{new_seed}-{new_seed + int(image_count) - 1}"
+        if int(image_count) > 1
+        else str(new_seed),
+        int(new_seed),
+        latest_batch,
+        None,
+        t("Batch ready"),
+    )
 
 
 if __name__ == "__main__":
@@ -568,6 +696,13 @@ if __name__ == "__main__":
                     label=t("Prompt"),
                     lines=3,
                     placeholder=t("Enter your prompt here..."),
+                    html_attributes=gr.InputHTMLAttributes(spellcheck=False),
+                )
+
+                negative_prompt = gr.Textbox(
+                    label=t("Negative Prompt"),
+                    lines=2,
+                    placeholder=t("Describe what to avoid..."),
                     html_attributes=gr.InputHTMLAttributes(spellcheck=False),
                 )
 
@@ -699,8 +834,19 @@ if __name__ == "__main__":
                     interactive=False,
                 )
                 last_image_index = gr.State(value=None)
+                latest_batch = gr.State(value=None)
                 used_seed = gr.Textbox(
-                    label=t("Seed Used"), interactive=False, visible=False
+                    label=t("Seed Used"), interactive=False, visible=True
+                )
+                generation_status = gr.Textbox(
+                    label=t("Batch Status"),
+                    value=t("Ready"),
+                    interactive=False,
+                )
+                download_batch_btn = gr.Button(t("Download Latest Batch ZIP"))
+                latest_batch_zip = gr.File(
+                    label=t("Latest Batch ZIP"),
+                    interactive=False,
                 )
 
         with gr.Row():
@@ -746,19 +892,34 @@ if __name__ == "__main__":
             generate,
             inputs=[
                 prompt,
+                negative_prompt,
                 resolution,
                 seed,
                 steps,
                 image_count,
                 random_seed,
                 gallery_images,
+                latest_batch,
             ],
-            outputs=[gallery_images, last_image_index, used_seed, seed],
+            outputs=[
+                gallery_images,
+                last_image_index,
+                used_seed,
+                seed,
+                latest_batch,
+                latest_batch_zip,
+                generation_status,
+            ],
         ).then(
             # Select generated image in gallery:
             lambda imgs, idx: gr.Gallery(value=imgs, selected_index=idx),
             inputs=[gallery_images, last_image_index],
             outputs=gallery_images,
+        )
+        download_batch_btn.click(
+            export_latest_batch,
+            inputs=[latest_batch],
+            outputs=[latest_batch_zip],
         )
 
         app.load(on_app_load)

@@ -12,9 +12,10 @@ Apply LoRAs on the fly. Trigger words are automatically inserted...
     - If SmartScreen pops, click on "More info", "Run anyway"
     - If a DLL is missing, install [Visual C++ Redist](https://aka.ms/vc14/vc_redist.x64.exe) and re-run
 3. Write a prompt
-4. (Optional) open "Advanced Settings" and set "Image Count" up to 20
-5. Click on "Generate Image"
-6. Download (export) generated image if you want
+4. (Optional) add a negative prompt to describe what to avoid
+5. (Optional) open "Advanced Settings" and set "Image Count" up to 20
+6. Click on "Generate Image"
+7. (Optional) download the latest generated batch as a ZIP archive
 
 ## Recommended configuration
 
