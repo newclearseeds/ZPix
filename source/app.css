@@ -191,10 +191,16 @@ body,
 }
 
 #examples-panel,
+#history-panel,
 #output-actions-panel,
 #export-files-panel {
     border: 1px solid rgba(255, 255, 255, 0.06) !important;
     background: rgba(255, 255, 255, 0.035) !important;
+}
+
+#history-panel .wrap,
+#history-panel .form {
+    gap: 12px;
 }
 
 #composer-panel .form,

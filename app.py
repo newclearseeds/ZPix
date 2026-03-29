@@ -59,6 +59,9 @@ negative_prompt_supported: bool | None = None
 stop_generation_requested: bool = False
 """Stop current batch generation?"""
 
+prompt_history_file = app_dir / "metadata" / "prompt_history.json"
+"""Recent prompt history storage."""
+
 
 def load_translation(locale: str) -> None:
     """Load translation for a given locale, if available."""
@@ -95,6 +98,127 @@ def get_example_prompts() -> list[str]:
         prompts = load_json(file)
 
     return [prompt["text"] for prompt in prompts]
+
+
+def load_prompt_history() -> list[dict]:
+    """Load recent prompt history from disk."""
+    if not prompt_history_file.exists():
+        return []
+
+    try:
+        with open(prompt_history_file, "r", encoding="utf-8") as file:
+            history = load_json(file)
+    except Exception as error:
+        logging.warning(f"Can't load prompt history: {error}")
+        return []
+
+    return history if isinstance(history, list) else []
+
+
+def save_prompt_history(history: list[dict]) -> None:
+    """Save recent prompt history to disk."""
+    prompt_history_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(prompt_history_file, "w", encoding="utf-8") as file:
+        file.write(dump_json(history[:20], ensure_ascii=False, indent=2))
+
+
+def format_history_entry(entry: dict) -> str:
+    """Format one prompt history entry for the UI."""
+    prompt = str(entry.get("prompt", "")).strip() or t("Untitled Prompt")
+    resolution = entry.get("resolution", "1024x1024")
+    image_count = entry.get("image_count", 1)
+    return f"{prompt[:72]} | {resolution} | x{image_count}"
+
+
+def history_choices(history: list[dict]) -> list[str]:
+    """Build radio choices from prompt history."""
+    return [format_history_entry(entry) for entry in history]
+
+
+def add_to_prompt_history(
+    history: list[dict] | None,
+    prompt: str,
+    negative_prompt: str,
+    resolution: str,
+    seed: int,
+    steps: int,
+    image_count: int,
+) -> tuple[list[dict], gr.update]:
+    """Append a new prompt entry and return updated UI state."""
+    entry = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "resolution": resolution,
+        "seed": int(seed),
+        "denoising_steps": int(steps),
+        "image_count": int(image_count),
+    }
+
+    history = list(history or [])
+    history = [
+        existing
+        for existing in history
+        if not (
+            existing.get("prompt") == entry["prompt"]
+            and existing.get("negative_prompt") == entry["negative_prompt"]
+            and existing.get("resolution") == entry["resolution"]
+            and existing.get("seed") == entry["seed"]
+            and existing.get("denoising_steps") == entry["denoising_steps"]
+            and existing.get("image_count") == entry["image_count"]
+        )
+    ]
+    history.insert(0, entry)
+    history = history[:20]
+    save_prompt_history(history)
+    return history, gr.update(choices=history_choices(history), value=None)
+
+
+def restore_prompt_history_entry(
+    selected_entry: str | None,
+    history: list[dict] | None,
+    resolutions_by_aspect: dict[str, list[str]],
+    default_aspect_ratio: str,
+):
+    """Restore prompt/settings from a history selection."""
+    if not selected_entry or not history:
+        raise gr.Error(t("Select a prompt history entry first."), duration=4)
+
+    entry = None
+    for candidate in history:
+        if format_history_entry(candidate) == selected_entry:
+            entry = candidate
+            break
+
+    if entry is None:
+        raise gr.Error(t("Prompt history entry could not be found."), duration=4)
+
+    aspect_ratio = find_aspect_ratio_for_resolution(
+        entry.get("resolution", "1024x1024"),
+        resolutions_by_aspect,
+        default_aspect_ratio,
+    )
+    _, resolution_update = build_resolution_update(
+        aspect_ratio,
+        resolutions_by_aspect,
+        resolutions_by_aspect[default_aspect_ratio],
+        entry.get("resolution", "1024x1024"),
+    )
+
+    return (
+        entry.get("prompt", ""),
+        entry.get("negative_prompt", ""),
+        aspect_ratio,
+        resolution_update,
+        int(entry.get("seed", 42)),
+        False,
+        max(4, min(9, int(entry.get("denoising_steps", 9)) - 1)),
+        True,
+        gr.update(visible=True),
+        gr.update(visible=True),
+        gr.update(visible=True),
+        int(entry.get("image_count", 1)),
+        t("Prompt restored from history"),
+    )
 
 
 def get_theme():
@@ -1046,6 +1170,7 @@ if __name__ == "__main__":
         aspect_ratio_choices,
         default_aspect_ratio,
     ) = get_aspects_and_resolutions()
+    initial_prompt_history = load_prompt_history()
 
     with gr.Blocks(
         analytics_enabled=False,
@@ -1286,6 +1411,15 @@ if __name__ == "__main__":
                         label=t("Example Prompts"),
                     )
 
+                with gr.Group(elem_id="history-panel"):
+                    prompt_history = gr.State(value=initial_prompt_history)
+                    prompt_history_list = gr.Radio(
+                        choices=history_choices(initial_prompt_history),
+                        label=t("Prompt History"),
+                        value=None,
+                    )
+                    restore_history_btn = gr.Button(t("Restore Selected Prompt"))
+
             with gr.Column(elem_id="output-panel"):
                 gr.Markdown(
                     f"""
@@ -1433,6 +1567,18 @@ if __name__ == "__main__":
             lambda imgs, idx: gr.Gallery(value=imgs, selected_index=idx),
             inputs=[gallery_images, last_image_index],
             outputs=gallery_images,
+        ).then(
+            add_to_prompt_history,
+            inputs=[
+                prompt_history,
+                prompt,
+                negative_prompt,
+                resolution,
+                seed,
+                steps,
+                image_count,
+            ],
+            outputs=[prompt_history, prompt_history_list],
         )
         download_batch_btn.click(
             export_latest_batch,
@@ -1492,6 +1638,30 @@ if __name__ == "__main__":
         preset_20_btn.click(
             lambda: set_batch_preset(20),
             outputs=[advanced_checkbox, seed_random_row, steps_row, image_count_row, image_count],
+        )
+        restore_history_btn.click(
+            lambda selected_entry, history: restore_prompt_history_entry(
+                selected_entry,
+                history,
+                resolutions_by_aspect,
+                default_aspect_ratio,
+            ),
+            inputs=[prompt_history_list, prompt_history],
+            outputs=[
+                prompt,
+                negative_prompt,
+                aspect_ratio,
+                resolution,
+                seed,
+                random_seed,
+                steps,
+                advanced_checkbox,
+                seed_random_row,
+                steps_row,
+                image_count_row,
+                image_count,
+                generation_status,
+            ],
         )
         toggle_favorite_btn.click(
             toggle_favorite,
