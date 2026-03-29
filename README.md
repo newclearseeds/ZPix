@@ -18,6 +18,7 @@ Apply LoRAs on the fly. Trigger words are automatically inserted...
 7. (Optional) download the latest generated batch as a ZIP archive
 8. (Optional) preview the whole batch as a contact sheet
 9. (Optional) mark favorites from the latest batch and export only those
+10. (Optional) export a selected image as PNG with metadata preserved for re-import
 
 ## Recommended configuration
 

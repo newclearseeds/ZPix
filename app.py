@@ -597,6 +597,47 @@ def export_favorites(
     return str(zip_path)
 
 
+def export_selected_image(
+    latest_batch: list | None,
+    selected_gallery_index: int | None,
+) -> str:
+    """Export the selected image from the latest batch with embedded metadata."""
+    if not latest_batch:
+        raise gr.Error(t("Generate a batch before downloading an image."), duration=4)
+
+    if selected_gallery_index is None:
+        raise gr.Error(t("Select an image before downloading it."), duration=4)
+
+    selected_entry = None
+    for entry in latest_batch:
+        if entry["metadata"]["gallery_index"] == selected_gallery_index:
+            selected_entry = entry
+            break
+
+    if selected_entry is None:
+        raise gr.Error(
+            t("Select an image from the latest batch before downloading it."),
+            duration=4,
+        )
+
+    export_dir = app_dir / "temp" / "Exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    image_path = export_dir / (
+        f"zpix_image_{selected_entry['metadata']['batch_index']:02d}"
+        f"_seed_{selected_entry['metadata']['seed']}.png"
+    )
+
+    png_info = PngInfo()
+    png_info.add_text(
+        "zpix_metadata",
+        dump_json(selected_entry["metadata"], ensure_ascii=False),
+    )
+    selected_entry["image"].save(image_path, format="PNG", pnginfo=png_info)
+
+    return str(image_path)
+
+
 def export_contact_sheet(latest_batch: list | None) -> str:
     """Export the latest generated batch as a contact sheet image."""
     if not latest_batch:
@@ -885,6 +926,12 @@ if __name__ == "__main__":
                     t("Import Image Metadata"),
                     elem_id="import-image-metadata-btn",
                 )
+                gr.HTML(
+                    js_on_load=f"""
+                        let btn = document.getElementById("import-image-metadata-btn")
+                        btn.title = "{t("Import prompt and settings from a ZPix PNG with embedded metadata")}"
+                    """
+                )
                 import_image_path = gr.Textbox(
                     visible="hidden",
                     elem_id="import-image-path",
@@ -1078,11 +1125,16 @@ if __name__ == "__main__":
                     interactive=False,
                 )
                 download_batch_btn = gr.Button(t("Download Latest Batch ZIP"))
+                download_selected_image_btn = gr.Button(t("Download Selected Image PNG"))
                 preview_sheet_btn = gr.Button(t("Preview Contact Sheet"))
                 toggle_favorite_btn = gr.Button(t("Toggle Favorite"))
                 download_favorites_btn = gr.Button(t("Download Favorites ZIP"))
                 latest_batch_zip = gr.File(
                     label=t("Latest Batch ZIP"),
+                    interactive=False,
+                )
+                selected_image_png = gr.File(
+                    label=t("Selected Image PNG"),
                     interactive=False,
                 )
                 favorites_zip = gr.File(
@@ -1175,6 +1227,11 @@ if __name__ == "__main__":
             export_latest_batch,
             inputs=[latest_batch],
             outputs=[latest_batch_zip],
+        )
+        download_selected_image_btn.click(
+            export_selected_image,
+            inputs=[latest_batch, selected_gallery_index],
+            outputs=[selected_image_png],
         )
         preview_sheet_btn.click(
             export_contact_sheet,
