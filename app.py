@@ -221,6 +221,31 @@ def restore_prompt_history_entry(
     )
 
 
+def delete_prompt_history_entry(
+    selected_entry: str | None,
+    history: list[dict] | None,
+) -> tuple[list[dict], gr.update, str]:
+    """Delete one prompt history entry."""
+    if not selected_entry or not history:
+        raise gr.Error(t("Select a prompt history entry first."), duration=4)
+
+    filtered_history = [
+        entry for entry in history if format_history_entry(entry) != selected_entry
+    ]
+    save_prompt_history(filtered_history)
+    return (
+        filtered_history,
+        gr.update(choices=history_choices(filtered_history), value=None),
+        t("Prompt history updated"),
+    )
+
+
+def clear_prompt_history() -> tuple[list[dict], gr.update, str]:
+    """Clear prompt history entirely."""
+    save_prompt_history([])
+    return [], gr.update(choices=[], value=None), t("Prompt history cleared")
+
+
 def get_theme():
     """Get customized theme."""
     return gr.themes.Base(
@@ -1418,7 +1443,10 @@ if __name__ == "__main__":
                         label=t("Prompt History"),
                         value=None,
                     )
-                    restore_history_btn = gr.Button(t("Restore Selected Prompt"))
+                    with gr.Row(elem_classes=["tool-grid"]):
+                        restore_history_btn = gr.Button(t("Restore Selected Prompt"))
+                        delete_history_btn = gr.Button(t("Delete Selected Prompt"))
+                    clear_history_btn = gr.Button(t("Clear Prompt History"))
 
             with gr.Column(elem_id="output-panel"):
                 gr.Markdown(
@@ -1662,6 +1690,15 @@ if __name__ == "__main__":
                 image_count,
                 generation_status,
             ],
+        )
+        delete_history_btn.click(
+            delete_prompt_history_entry,
+            inputs=[prompt_history_list, prompt_history],
+            outputs=[prompt_history, prompt_history_list, generation_status],
+        )
+        clear_history_btn.click(
+            clear_prompt_history,
+            outputs=[prompt_history, prompt_history_list, generation_status],
         )
         toggle_favorite_btn.click(
             toggle_favorite,
