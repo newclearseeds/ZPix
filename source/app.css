@@ -59,7 +59,7 @@ body,
 #composer-panel,
 #output-panel {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
 }
 
 #sidebar-panel::before,
@@ -70,6 +70,20 @@ body,
     inset: 0;
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%);
     pointer-events: none;
+}
+
+#composer-panel .wrap,
+#composer-panel .wrap-inner,
+#composer-panel .form,
+#composer-panel .block {
+    overflow: visible !important;
+}
+
+#composer-panel .choices,
+#composer-panel .dropdown,
+#composer-panel [role="listbox"],
+#composer-panel ul[role="listbox"] {
+    z-index: 50 !important;
 }
 
 #sidebar-panel {
