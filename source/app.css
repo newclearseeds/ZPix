@@ -86,6 +86,28 @@ body,
     z-index: 50 !important;
 }
 
+#aspect-ratio-dropdown,
+#resolution-dropdown {
+    position: relative;
+    z-index: 20;
+}
+
+#aspect-ratio-dropdown button,
+#resolution-dropdown button,
+#aspect-ratio-dropdown [role="combobox"],
+#resolution-dropdown [role="combobox"] {
+    position: relative;
+    z-index: 21;
+}
+
+#aspect-ratio-dropdown [role="listbox"],
+#resolution-dropdown [role="listbox"],
+#aspect-ratio-dropdown ul[role="listbox"],
+#resolution-dropdown ul[role="listbox"] {
+    position: relative;
+    z-index: 9999 !important;
+}
+
 #sidebar-panel {
     max-width: 86px;
     min-width: 86px !important;

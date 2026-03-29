@@ -1370,6 +1370,8 @@ if __name__ == "__main__":
                             choices=aspect_ratio_choices,
                             label=t("Aspect Ratio"),
                             interactive=True,
+                            filterable=False,
+                            elem_id="aspect-ratio-dropdown",
                         )
                     with gr.Column():
                         resolution = gr.Dropdown(
@@ -1377,6 +1379,8 @@ if __name__ == "__main__":
                             choices=default_resolution_choices,
                             label=t("Resolution"),
                             interactive=True,
+                            filterable=False,
+                            elem_id="resolution-dropdown",
                         )
 
                 with gr.Row():
