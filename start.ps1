@@ -60,12 +60,19 @@ $backupModel = "SamuelTallet/Z-Image-Turbo-SDNQ-uint4-svd-r32"
 
 . "source\ps\app_invoking.ps1"
 
-# Path to uv executable distributed with this app.
-# So we don't rely on a global uv that maybe uninstalled outside of this app.
-$uv = "tools\astral\uv.exe"
+# Prefer the bundled uv executable when present, otherwise
+# fall back to a globally installed uv (for source checkouts).
+$bundledUv = "tools\astral\uv.exe"
+$globalUv = Get-Command "uv" -ErrorAction SilentlyContinue
 
-if (-not (Test-Path $uv)) {
-    throw "uv executable not found at $uv"
+if (Test-Path $bundledUv) {
+    $uv = $bundledUv
+}
+elseif ($globalUv) {
+    $uv = $globalUv.Source
+}
+else {
+    throw "uv executable not found. Expected $bundledUv or a global 'uv' on PATH."
 }
 
 # Python venv was previously optimized?

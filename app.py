@@ -15,7 +15,7 @@ from diffusers import ZImagePipeline
 from sdnq import SDNQConfig  # noqa: F401
 from sdnq.common import use_torch_compile as triton_is_available
 from sdnq.loader import apply_sdnq_options_to_model
-from torch import bfloat16, cuda, manual_seed, xpu
+from torch import Generator, bfloat16, cuda, xpu
 
 from source.py.disclaimer import TERMS_OF_USE, TermsOfUse
 from source.py.lora_model import LoraModel
@@ -382,6 +382,17 @@ def generate_image(
     """
     global pipe_is_busy
     width, height = parse_resolution(resolution)
+    generator_device = "cpu"
+
+    if cuda.is_available():
+        generator_device = "cuda"
+    elif xpu.is_available():
+        generator_device = "xpu"
+
+    generators = [
+        Generator(device=generator_device).manual_seed(seed + index)
+        for index in range(image_count)
+    ]
 
     try:
         pipe_is_busy = True
@@ -391,7 +402,7 @@ def generate_image(
             width=width,
             num_inference_steps=num_inference_steps,
             guidance_scale=0.0,
-            generator=manual_seed(seed),
+            generator=generators if image_count > 1 else generators[0],
             num_images_per_prompt=image_count,
         ).images
     finally:
