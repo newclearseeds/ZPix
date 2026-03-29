@@ -365,6 +365,7 @@ def generate_image(
     resolution="1024x1024",
     seed=42,
     num_inference_steps=8,
+    image_count=1,
 ):
     """Generate an image using the Z-Image pipeline.
 
@@ -374,27 +375,29 @@ def generate_image(
         resolution: Output resolution as "WIDTHxHEIGHT" string.
         seed: Random seed for reproducible generation.
         num_inference_steps: Number of denoising steps.
+        image_count: Number of images to generate in one batch.
 
     Returns:
-        Generated PIL Image.
+        Generated PIL Images.
     """
     global pipe_is_busy
     width, height = parse_resolution(resolution)
 
     try:
         pipe_is_busy = True
-        image = pipe(
+        images = pipe(
             prompt=prompt,
             height=height,
             width=width,
             num_inference_steps=num_inference_steps,
             guidance_scale=0.0,
             generator=manual_seed(seed),
-        ).images[0]
+            num_images_per_prompt=image_count,
+        ).images
     finally:
         pipe_is_busy = False
 
-    return image
+    return images
 
 
 def generate(
@@ -402,6 +405,7 @@ def generate(
     resolution="1024x1024",
     seed=42,
     steps=8,
+    image_count=1,
     random_seed=True,
     gallery_images=None,
 ):
@@ -412,6 +416,7 @@ def generate(
         resolution: Resolution string (e.g. "1024x1024").
         seed: Seed value for reproducibility.
         steps: Number of inference (denoising) steps.
+        image_count: Number of images to generate in one batch.
         random_seed: If True, generate a random seed ignoring the seed parameter.
         gallery_images: Existing gallery images to append to.
 
@@ -441,22 +446,23 @@ def generate(
         "resolution": resolution,
         "seed": new_seed,
         "num_inference_steps": int(steps + 1),
+        "image_count": int(image_count),
     }
     try:
-        image = generate_image(**generation_args)
+        images = generate_image(**generation_args)
     except UnicodeDecodeError:
         # A corrupted Triton cache can cause an UnicodeDecodeError.
         rmtree(Path.home() / ".triton", ignore_errors=True)
         gr.Warning(t("Cleared Triton cache as it may be corrupted."), duration=6)
 
         gr.Info(t("Regenerating same image..."), duration=8)
-        image = generate_image(**generation_args)
+        images = generate_image(**generation_args)
 
     if gallery_images is None:
         gallery_images = []
 
     # Prompt is added as image caption.
-    gallery_images.append((image, prompt))
+    gallery_images.extend((image, prompt) for image in images)
 
     return gallery_images, len(gallery_images) - 1, str(new_seed), int(new_seed)
 
@@ -642,13 +648,26 @@ if __name__ == "__main__":
                         step=1,
                     )
 
+                with gr.Row(visible=False) as image_count_row:
+                    image_count = gr.Slider(
+                        label=t("Image Count"),
+                        minimum=1,
+                        maximum=20,
+                        value=1,
+                        step=1,
+                    )
+
                 def advanced_rows_visibility(v):
-                    return gr.update(visible=v), gr.update(visible=v)
+                    return (
+                        gr.update(visible=v),
+                        gr.update(visible=v),
+                        gr.update(visible=v),
+                    )
 
                 advanced_checkbox.change(
                     advanced_rows_visibility,
                     inputs=advanced_checkbox,
-                    outputs=[seed_random_row, steps_row],
+                    outputs=[seed_random_row, steps_row, image_count_row],
                 )
 
                 gr.Examples(
@@ -714,7 +733,15 @@ if __name__ == "__main__":
         )
         generate_btn.click(
             generate,
-            inputs=[prompt, resolution, seed, steps, random_seed, gallery_images],
+            inputs=[
+                prompt,
+                resolution,
+                seed,
+                steps,
+                image_count,
+                random_seed,
+                gallery_images,
+            ],
             outputs=[gallery_images, last_image_index, used_seed, seed],
         ).then(
             # Select generated image in gallery:
