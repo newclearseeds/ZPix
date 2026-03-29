@@ -484,6 +484,102 @@ def export_latest_batch(latest_batch: list | None) -> str:
     return str(zip_path)
 
 
+def format_favorites_status(favorite_indices: list[int]) -> str:
+    """Format favorite selection status for display."""
+    if not favorite_indices:
+        return t("No favorites selected")
+
+    favorites_text = ", ".join(str(index + 1) for index in sorted(favorite_indices))
+    return f"{t('Favorites')}: {favorites_text}"
+
+
+def toggle_favorite(
+    latest_batch: list | None,
+    favorite_indices: list[int] | None,
+    selected_gallery_index: int | None,
+):
+    """Toggle favorite status for the currently selected image."""
+    if not latest_batch:
+        raise gr.Error(t("Generate a batch before selecting favorites."), duration=4)
+
+    if selected_gallery_index is None:
+        raise gr.Error(t("Select an image before marking it as favorite."), duration=4)
+
+    batch_gallery_indices = [entry["metadata"]["gallery_index"] for entry in latest_batch]
+    if selected_gallery_index not in batch_gallery_indices:
+        raise gr.Error(
+            t("Select an image from the latest batch to mark it as favorite."),
+            duration=4,
+        )
+
+    favorite_indices = set(favorite_indices or [])
+
+    if selected_gallery_index in favorite_indices:
+        favorite_indices.remove(selected_gallery_index)
+    else:
+        favorite_indices.add(selected_gallery_index)
+
+    updated_favorites = sorted(favorite_indices)
+    return updated_favorites, format_favorites_status(updated_favorites)
+
+
+def export_favorites(
+    latest_batch: list | None,
+    favorite_indices: list[int] | None,
+) -> str:
+    """Export selected favorites from the latest batch to a zip archive."""
+    if not latest_batch:
+        raise gr.Error(t("Generate a batch before downloading favorites."), duration=4)
+
+    favorite_indices = set(favorite_indices or [])
+    if not favorite_indices:
+        raise gr.Error(t("Select favorites before downloading them."), duration=4)
+
+    favorite_entries = [
+        entry
+        for entry in latest_batch
+        if entry["metadata"]["gallery_index"] in favorite_indices
+    ]
+    if not favorite_entries:
+        raise gr.Error(
+            t("Select favorites from the latest batch before downloading them."),
+            duration=4,
+        )
+
+    export_dir = app_dir / "temp" / "Exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    first_seed = favorite_entries[0]["metadata"]["seed"]
+    last_seed = favorite_entries[-1]["metadata"]["seed"]
+    zip_path = export_dir / f"zpix_favorites_{first_seed}_{last_seed}.zip"
+
+    with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "favorites_metadata.json",
+            dump_json(
+                [entry["metadata"] for entry in favorite_entries],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+        for entry in favorite_entries:
+            png_info = PngInfo()
+            png_info.add_text(
+                "zpix_metadata",
+                dump_json(entry["metadata"], ensure_ascii=False),
+            )
+
+            image_buffer = BytesIO()
+            entry["image"].save(image_buffer, format="PNG", pnginfo=png_info)
+            archive.writestr(
+                f"favorite_{entry['metadata']['batch_index']:02d}_seed_{entry['metadata']['seed']}.png",
+                image_buffer.getvalue(),
+            )
+
+    return str(zip_path)
+
+
 def export_contact_sheet(latest_batch: list | None) -> str:
     """Export the latest generated batch as a contact sheet image."""
     if not latest_batch:
@@ -628,6 +724,7 @@ def generate(
                 batch_index=index + 1,
                 batch_size=int(image_count),
             )
+            image_metadata["gallery_index"] = len(gallery_images)
             latest_batch.append({"image": image, "metadata": image_metadata})
 
             # Prompt is added as image caption.
@@ -636,11 +733,15 @@ def generate(
             yield (
                 gallery_images,
                 len(gallery_images) - 1,
+                len(gallery_images) - 1,
                 f"{new_seed}-{new_seed + int(image_count) - 1}"
                 if int(image_count) > 1
                 else str(new_seed),
                 int(new_seed),
                 latest_batch,
+                None,
+                [],
+                format_favorites_status([]),
                 None,
                 t("Generating image") + f" {index + 1}/{int(image_count)}",
             )
@@ -651,11 +752,15 @@ def generate(
     yield (
         gallery_images,
         len(gallery_images) - 1,
+        len(gallery_images) - 1,
         f"{new_seed}-{new_seed + int(image_count) - 1}"
         if int(image_count) > 1
         else str(new_seed),
         int(new_seed),
         latest_batch,
+        None,
+        [],
+        format_favorites_status([]),
         None,
         t("Batch ready"),
     )
@@ -889,7 +994,9 @@ if __name__ == "__main__":
                     interactive=False,
                 )
                 last_image_index = gr.State(value=None)
+                selected_gallery_index = gr.State(value=None)
                 latest_batch = gr.State(value=None)
+                favorite_indices = gr.State(value=[])
                 used_seed = gr.Textbox(
                     label=t("Seed Used"), interactive=False, visible=True
                 )
@@ -900,14 +1007,25 @@ if __name__ == "__main__":
                 )
                 download_batch_btn = gr.Button(t("Download Latest Batch ZIP"))
                 preview_sheet_btn = gr.Button(t("Preview Contact Sheet"))
+                toggle_favorite_btn = gr.Button(t("Toggle Favorite"))
+                download_favorites_btn = gr.Button(t("Download Favorites ZIP"))
                 latest_batch_zip = gr.File(
                     label=t("Latest Batch ZIP"),
+                    interactive=False,
+                )
+                favorites_zip = gr.File(
+                    label=t("Favorites ZIP"),
                     interactive=False,
                 )
                 contact_sheet = gr.Image(
                     label=t("Latest Contact Sheet"),
                     interactive=False,
                     type="filepath",
+                )
+                favorites_status = gr.Textbox(
+                    label=t("Favorites"),
+                    value=t("No favorites selected"),
+                    interactive=False,
                 )
 
         with gr.Row():
@@ -965,10 +1083,14 @@ if __name__ == "__main__":
             outputs=[
                 gallery_images,
                 last_image_index,
+                selected_gallery_index,
                 used_seed,
                 seed,
                 latest_batch,
                 latest_batch_zip,
+                favorite_indices,
+                favorites_status,
+                favorites_zip,
                 generation_status,
             ],
         ).then(
@@ -986,6 +1108,20 @@ if __name__ == "__main__":
             export_contact_sheet,
             inputs=[latest_batch],
             outputs=[contact_sheet],
+        )
+        gallery_images.select(
+            lambda evt: evt.index,
+            outputs=[selected_gallery_index],
+        )
+        toggle_favorite_btn.click(
+            toggle_favorite,
+            inputs=[latest_batch, favorite_indices, selected_gallery_index],
+            outputs=[favorite_indices, favorites_status],
+        )
+        download_favorites_btn.click(
+            export_favorites,
+            inputs=[latest_batch, favorite_indices],
+            outputs=[favorites_zip],
         )
 
         app.load(on_app_load)
