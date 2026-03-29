@@ -918,14 +918,14 @@ if __name__ == "__main__":
                 gr.Button(
                     "",
                     icon=app_dir / "assets" / "noto-emoji" / "emoji_u26a1.svg",
-                    link=get_metadata("HOME_URL"),
+                    link=f"{get_metadata('HOME_URL')}/releases/latest",
                     link_target="_blank",  # Opens default browser. See app.js
                     elem_id="home-btn",
                 )
                 gr.HTML(
                     js_on_load=f"""
                         let btn = document.getElementById("home-btn")
-                        btn.title = "{t("Visit project homepage to check updates")}"
+                        btn.title = "{t("Open latest release to check for updates")}"
                     """
                 )
                 gr.Button(
