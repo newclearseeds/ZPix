@@ -222,6 +222,24 @@ def find_aspect_ratio_for_resolution(
     return fallback
 
 
+def build_resolution_update(
+    aspect_ratio: str,
+    resolutions_by_aspect: dict[str, list[str]],
+    default_resolution_choices: list[str],
+    requested_resolution: str | None = None,
+):
+    """Build a consistent resolution dropdown update."""
+    resolution_choices = resolutions_by_aspect.get(
+        aspect_ratio, default_resolution_choices
+    )
+    selected_resolution = (
+        requested_resolution
+        if requested_resolution in resolution_choices
+        else resolution_choices[0]
+    )
+    return aspect_ratio, gr.update(value=selected_resolution, choices=resolution_choices)
+
+
 def update_trigger_word(trigger_words: list, prompt: str) -> str:
     """Update the trigger word in the prompt.
 
@@ -846,12 +864,18 @@ def import_image_metadata(
         default_aspect_ratio,
     )
     steps = max(4, min(9, int(metadata.get("denoising_steps", 9)) - 1))
+    _, resolution_update = build_resolution_update(
+        aspect_ratio,
+        resolutions_by_aspect,
+        resolutions_by_aspect[default_aspect_ratio],
+        resolution,
+    )
 
     return (
         prompt,
         negative_prompt,
         aspect_ratio,
-        gr.update(value=resolution, choices=resolutions_by_aspect[aspect_ratio]),
+        resolution_update,
         seed,
         False,
         steps,
@@ -1201,6 +1225,7 @@ if __name__ == "__main__":
                             value=default_resolution_choices[0],
                             choices=default_resolution_choices,
                             label=t("Resolution"),
+                            interactive=True,
                         )
 
                 with gr.Row():
@@ -1366,10 +1391,12 @@ if __name__ == "__main__":
                 )
 
         def update_resolution_choices(_aspect_ratio):
-            resolution_choices = resolutions_by_aspect.get(
-                _aspect_ratio, default_resolution_choices
+            _, resolution_update = build_resolution_update(
+                _aspect_ratio,
+                resolutions_by_aspect,
+                default_resolution_choices,
             )
-            return gr.update(value=resolution_choices[0], choices=resolution_choices)
+            return resolution_update
 
         aspect_ratio.change(
             update_resolution_choices, inputs=aspect_ratio, outputs=resolution
