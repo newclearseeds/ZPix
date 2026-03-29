@@ -847,6 +847,11 @@ if __name__ == "__main__":
                         btn.title = "{t("Keep project developer awake with a coffee")} 😄"
                     """
                 )
+                gr.Button(
+                    t("Quit App"),
+                    variant="stop",
+                    elem_id="quit-app-btn",
+                )
 
             with gr.Column():
                 trigger_words = gr.State(value=[None, None])

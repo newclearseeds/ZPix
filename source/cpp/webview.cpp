@@ -77,6 +77,12 @@ void Webview::Initialize(HWND parent, const std::wstring& url) {
                                                     }
                                                     std::wstring script = L"window._fileDialogResolve" + callbackId + L"('" + escaped + L"');";
                                                     sender->ExecuteScript(script.c_str(), nullptr);
+                                                } else if (msg == L"quit_app") {
+                                                    HWND parent = nullptr;
+                                                    webviewController->get_ParentWindow(&parent);
+                                                    if (parent) {
+                                                        PostMessageW(parent, WM_CLOSE, 0, 0);
+                                                    }
                                                 }
                                                 CoTaskMemFree(message);
                                             }
@@ -95,6 +101,9 @@ void Webview::Initialize(HWND parent, const std::wstring& url) {
                                     L"    };"
                                     L"    window.chrome.webview.postMessage('open_file_dialog:' + id);"
                                     L"  });"
+                                    L"};"
+                                    L"window.quitNativeApp = function() {"
+                                    L"  window.chrome.webview.postMessage('quit_app');"
                                     L"};",
                                     nullptr);
 

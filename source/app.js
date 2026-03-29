@@ -4,6 +4,10 @@
 
 // Delegate events for some elements.
 document.addEventListener("click", (event) => {
+    if (event.target.closest("#quit-app-btn")) {
+        return quitApp()
+    }
+
     if (event.target.closest("#swap-lora-btn")) {
         return swapLora()
     }
@@ -26,6 +30,18 @@ function openExternalLink(link, event) {
     event.preventDefault() // Instead of opening a new webview
     // thanks to a custom binding. See webview.cpp
     window.openWithDefaultBrowser(link.href)
+}
+
+/**
+ * Close the desktop app gracefully.
+ */
+function quitApp() {
+    if (typeof window.quitNativeApp === "function") {
+        window.quitNativeApp()
+        return
+    }
+
+    window.close()
 }
 
 /**
