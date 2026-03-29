@@ -16,6 +16,7 @@ Apply LoRAs on the fly. Trigger words are automatically inserted...
 5. (Optional) open "Advanced Settings" and set "Image Count" up to 20
 6. Click on "Generate Image"
 7. (Optional) download the latest generated batch as a ZIP archive
+8. (Optional) preview the whole batch as a contact sheet
 
 ## Recommended configuration
 

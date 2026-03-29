@@ -14,6 +14,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import gradio as gr
 from diffusers import ZImagePipeline
+from PIL import Image, ImageDraw
 from PIL.PngImagePlugin import PngInfo
 from sdnq import SDNQConfig  # noqa: F401
 from sdnq.common import use_torch_compile as triton_is_available
@@ -483,6 +484,60 @@ def export_latest_batch(latest_batch: list | None) -> str:
     return str(zip_path)
 
 
+def export_contact_sheet(latest_batch: list | None) -> str:
+    """Export the latest generated batch as a contact sheet image."""
+    if not latest_batch:
+        raise gr.Error(t("Generate a batch before previewing it."), duration=4)
+
+    export_dir = app_dir / "temp" / "Exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    first_seed = latest_batch[0]["metadata"]["seed"]
+    last_seed = latest_batch[-1]["metadata"]["seed"]
+    sheet_path = export_dir / f"zpix_contact_sheet_{first_seed}_{last_seed}.png"
+
+    image_count = len(latest_batch)
+    columns = min(4, image_count)
+    rows = (image_count + columns - 1) // columns
+
+    thumbnail_size = (320, 320)
+    padding = 20
+    label_height = 30
+
+    sheet_width = columns * thumbnail_size[0] + (columns + 1) * padding
+    sheet_height = rows * (thumbnail_size[1] + label_height) + (rows + 1) * padding
+    sheet = Image.new("RGB", (sheet_width, sheet_height), color=(245, 245, 250))
+    draw = ImageDraw.Draw(sheet)
+
+    for index, entry in enumerate(latest_batch):
+        column = index % columns
+        row = index // columns
+        x = padding + column * (thumbnail_size[0] + padding)
+        y = padding + row * (thumbnail_size[1] + label_height + padding)
+
+        thumbnail = entry["image"].copy()
+        thumbnail.thumbnail(thumbnail_size)
+
+        thumb_x = x + (thumbnail_size[0] - thumbnail.width) // 2
+        thumb_y = y + (thumbnail_size[1] - thumbnail.height) // 2
+
+        draw.rectangle(
+            [x - 1, y - 1, x + thumbnail_size[0] + 1, y + thumbnail_size[1] + 1],
+            outline=(210, 210, 220),
+            width=1,
+        )
+        sheet.paste(thumbnail, (thumb_x, thumb_y))
+
+        draw.text(
+            (x, y + thumbnail_size[1] + 6),
+            f"#{entry['metadata']['batch_index']}  seed {entry['metadata']['seed']}",
+            fill=(45, 45, 55),
+        )
+
+    sheet.save(sheet_path, format="PNG")
+    return str(sheet_path)
+
+
 def generate(
     prompt,
     negative_prompt="",
@@ -844,9 +899,15 @@ if __name__ == "__main__":
                     interactive=False,
                 )
                 download_batch_btn = gr.Button(t("Download Latest Batch ZIP"))
+                preview_sheet_btn = gr.Button(t("Preview Contact Sheet"))
                 latest_batch_zip = gr.File(
                     label=t("Latest Batch ZIP"),
                     interactive=False,
+                )
+                contact_sheet = gr.Image(
+                    label=t("Latest Contact Sheet"),
+                    interactive=False,
+                    type="filepath",
                 )
 
         with gr.Row():
@@ -920,6 +981,11 @@ if __name__ == "__main__":
             export_latest_batch,
             inputs=[latest_batch],
             outputs=[latest_batch_zip],
+        )
+        preview_sheet_btn.click(
+            export_contact_sheet,
+            inputs=[latest_batch],
+            outputs=[contact_sheet],
         )
 
         app.load(on_app_load)
