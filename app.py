@@ -208,6 +208,17 @@ def parse_resolution(resolution):
     return 1024, 1024
 
 
+def find_aspect_ratio_for_resolution(
+    resolution: str, resolutions_by_aspect: dict[str, list[str]], fallback: str
+) -> str:
+    """Find the aspect ratio bucket that contains a resolution."""
+    for aspect_ratio, resolutions in resolutions_by_aspect.items():
+        if resolution in resolutions:
+            return aspect_ratio
+
+    return fallback
+
+
 def update_trigger_word(trigger_words: list, prompt: str) -> str:
     """Update the trigger word in the prompt.
 
@@ -692,7 +703,11 @@ def export_contact_sheet(latest_batch: list | None) -> str:
     return str(sheet_path)
 
 
-def import_image_metadata(path: str):
+def import_image_metadata(
+    path: str,
+    resolutions_by_aspect: dict[str, list[str]],
+    default_aspect_ratio: str,
+):
     """Import generation metadata from a PNG image."""
     if not path:
         raise gr.Error(t("Select an image to import metadata from."), duration=4)
@@ -715,12 +730,18 @@ def import_image_metadata(path: str):
     negative_prompt = metadata.get("negative_prompt", "")
     seed = int(metadata.get("seed", 42))
     resolution = metadata.get("resolution", "1024x1024")
+    aspect_ratio = find_aspect_ratio_for_resolution(
+        resolution,
+        resolutions_by_aspect,
+        default_aspect_ratio,
+    )
     steps = max(4, min(9, int(metadata.get("denoising_steps", 9)) - 1))
 
     return (
         prompt,
         negative_prompt,
-        resolution,
+        aspect_ratio,
+        gr.update(value=resolution, choices=resolutions_by_aspect[aspect_ratio]),
         seed,
         False,
         steps,
@@ -1267,11 +1288,16 @@ if __name__ == "__main__":
             outputs=[selected_gallery_index],
         )
         import_image_path.change(
-            import_image_metadata,
+            lambda path: import_image_metadata(
+                path,
+                resolutions_by_aspect,
+                default_aspect_ratio,
+            ),
             inputs=[import_image_path],
             outputs=[
                 prompt,
                 negative_prompt,
+                aspect_ratio,
                 resolution,
                 seed,
                 random_seed,
