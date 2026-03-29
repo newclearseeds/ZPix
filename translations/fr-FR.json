@@ -4,6 +4,7 @@
     "Access the FAQ of this application": "Accédez à la FAQ de cette application",
     "Keep project developer awake with a coffee": "Maintenez le développeur de ce projet éveillé avec un café",
     "Quit App": "Quitter l'application",
+    "Close this browser tab to stop viewing the app. The local server may still keep running in the terminal.": "Fermez cet onglet du navigateur pour arrêter d'afficher l'application. Le serveur local peut continuer à fonctionner dans le terminal.",
     "Enter your prompt here...": "Entrez votre prompt ici...",
     "Negative Prompt": "Prompt négatif",
     "Describe what to avoid...": "Décrivez ce qu'il faut éviter...",

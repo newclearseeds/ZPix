@@ -53,6 +53,9 @@ optimized: bool = False
 pipe_is_busy: bool = False
 """Pipeline is busy? e.g. loading a LoRA."""
 
+negative_prompt_supported: bool | None = None
+"""Pipeline supports negative prompts?"""
+
 
 def load_translation(locale: str) -> None:
     """Load translation for a given locale, if available."""
@@ -384,7 +387,7 @@ def generate_image(
     Returns:
         Generated PIL Image.
     """
-    global pipe_is_busy
+    global negative_prompt_supported
     width, height = parse_resolution(resolution)
     generator_device = "cpu"
 
@@ -395,20 +398,32 @@ def generate_image(
 
     generator = Generator(device=generator_device).manual_seed(seed)
 
+    generation_kwargs = {
+        "prompt": prompt,
+        "height": height,
+        "width": width,
+        "num_inference_steps": num_inference_steps,
+        "guidance_scale": 0.0,
+        "generator": generator,
+        "num_images_per_prompt": 1,
+    }
+
+    if negative_prompt_supported is not False and negative_prompt:
+        generation_kwargs["negative_prompt"] = negative_prompt
+
     try:
         image = pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            height=height,
-            width=width,
-            num_inference_steps=num_inference_steps,
-            guidance_scale=0.0,
-            generator=generator,
-            num_images_per_prompt=1,
+            **generation_kwargs,
         ).images[0]
-    except TypeError:
-        # Keep compatibility if the current pipeline revision
-        # does not support negative prompts explicitly.
+        if "negative_prompt" in generation_kwargs:
+            negative_prompt_supported = True
+    except TypeError as error:
+        if "negative_prompt" not in generation_kwargs:
+            raise
+        if "negative_prompt" not in str(error):
+            raise
+
+        negative_prompt_supported = False
         image = pipe(
             prompt=prompt,
             height=height,
@@ -489,7 +504,7 @@ def format_favorites_status(favorite_indices: list[int]) -> str:
     if not favorite_indices:
         return t("No favorites selected")
 
-    favorites_text = ", ".join(str(index + 1) for index in sorted(favorite_indices))
+    favorites_text = ", ".join(str(index) for index in sorted(favorite_indices))
     return f"{t('Favorites')}: {favorites_text}"
 
 
@@ -505,19 +520,21 @@ def toggle_favorite(
     if selected_gallery_index is None:
         raise gr.Error(t("Select an image before marking it as favorite."), duration=4)
 
-    batch_gallery_indices = [entry["metadata"]["gallery_index"] for entry in latest_batch]
-    if selected_gallery_index not in batch_gallery_indices:
-        raise gr.Error(
-            t("Select an image from the latest batch to mark it as favorite."),
-            duration=4,
-        )
+    selected_batch_index = None
+    for entry in latest_batch:
+        if entry["metadata"]["gallery_index"] == selected_gallery_index:
+            selected_batch_index = entry["metadata"]["batch_index"]
+            break
+
+    if selected_batch_index is None:
+        raise gr.Error(t("Select an image from the latest batch to mark it as favorite."), duration=4)
 
     favorite_indices = set(favorite_indices or [])
 
-    if selected_gallery_index in favorite_indices:
-        favorite_indices.remove(selected_gallery_index)
+    if selected_batch_index in favorite_indices:
+        favorite_indices.remove(selected_batch_index)
     else:
-        favorite_indices.add(selected_gallery_index)
+        favorite_indices.add(selected_batch_index)
 
     updated_favorites = sorted(favorite_indices)
     return updated_favorites, format_favorites_status(updated_favorites)
@@ -538,7 +555,7 @@ def export_favorites(
     favorite_entries = [
         entry
         for entry in latest_batch
-        if entry["metadata"]["gallery_index"] in favorite_indices
+        if entry["metadata"]["batch_index"] in favorite_indices
     ]
     if not favorite_entries:
         raise gr.Error(
@@ -996,7 +1013,7 @@ if __name__ == "__main__":
                     object_fit="contain",
                     format="png",
                     buttons=["download", "fullscreen"],
-                    interactive=False,
+                    interactive=True,
                 )
                 last_image_index = gr.State(value=None)
                 selected_gallery_index = gr.State(value=None)

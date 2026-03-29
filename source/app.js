@@ -41,7 +41,7 @@ function quitApp() {
         return
     }
 
-    window.close()
+    alert("Close this browser tab to stop viewing the app. The local server may still keep running in the terminal.")
 }
 
 /**
